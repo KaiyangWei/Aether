@@ -1,3 +1,4 @@
+
 cmake_minimum_required(VERSION 3.24)
 
 # ============================================================
@@ -24,11 +25,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(THIRD_PARTY_DIR "${CMAKE_SOURCE_DIR}/third_party")
 
-set(GLFW_DIR       "${THIRD_PARTY_DIR}/glfw")
-set(GLM_DIR        "${THIRD_PARTY_DIR}/glm")
-set(IMGUI_DIR      "${THIRD_PARTY_DIR}/imgui")
-set(VKB_DIR        "${THIRD_PARTY_DIR}/vk-bootstrap")
-set(VMA_DIR        "${THIRD_PARTY_DIR}/vma")
+set(GLFW_DIR "${THIRD_PARTY_DIR}/glfw")
+set(GLM_DIR  "${THIRD_PARTY_DIR}/glm")
+set(IMGUI_DIR "${THIRD_PARTY_DIR}/imgui")
+set(VKB_DIR  "${THIRD_PARTY_DIR}/vk-bootstrap")
+set(VMA_DIR  "${THIRD_PARTY_DIR}/vma")
 
 # ============================================================
 # Vulkan SDK
@@ -37,6 +38,19 @@ set(VMA_DIR        "${THIRD_PARTY_DIR}/vma")
 find_package(Vulkan REQUIRED)
 
 message(STATUS "Vulkan SDK: ${Vulkan_VERSION}")
+
+# ============================================================
+# DirectX Shader Compiler (DXC)
+# ============================================================
+
+find_program(DXC_EXECUTABLE
+    NAMES dxc dxc.exe
+    HINTS
+        "C:/VulkanSDK/1.4.357.0/Bin"
+    REQUIRED
+)
+
+message(STATUS "DXC Compiler: ${DXC_EXECUTABLE}")
 
 # ============================================================
 # GLFW
@@ -96,7 +110,9 @@ set(IMGUI_SOURCES
     "${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp"
 )
 
-add_library(imgui STATIC ${IMGUI_SOURCES})
+add_library(imgui STATIC
+    ${IMGUI_SOURCES}
+)
 
 target_include_directories(imgui PUBLIC
     "${IMGUI_DIR}"
@@ -121,6 +137,18 @@ target_include_directories(VMA INTERFACE
 )
 
 # ============================================================
+# Shader Directories
+# ============================================================
+
+set(SHADER_SOURCE_DIR
+    "${CMAKE_SOURCE_DIR}/Shaders"
+)
+
+set(SHADER_BINARY_DIR
+    "${CMAKE_BINARY_DIR}/Shaders"
+)
+
+# ============================================================
 # Aether Engine
 # ============================================================
 
@@ -134,6 +162,7 @@ add_executable(Aether
 
 target_include_directories(Aether PRIVATE
     "${CMAKE_SOURCE_DIR}/Engine"
+    "${VKB_DIR}/src"
 )
 
 target_link_libraries(Aether PRIVATE
@@ -146,11 +175,76 @@ target_link_libraries(Aether PRIVATE
 )
 
 # ============================================================
+# Shader Compilation
+# ============================================================
+
+function(add_aether_shader SOURCE_FILE PROFILE OUTPUT_FILE)
+
+    set(SOURCE_PATH
+        "${SHADER_SOURCE_DIR}/${SOURCE_FILE}"
+    )
+
+    set(OUTPUT_PATH
+        "${SHADER_BINARY_DIR}/${OUTPUT_FILE}"
+    )
+
+    add_custom_command(
+        OUTPUT "${OUTPUT_PATH}"
+
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${SHADER_BINARY_DIR}"
+
+        COMMAND "${DXC_EXECUTABLE}"
+            -spirv
+            -fspv-target-env=vulkan1.3
+            -T "${PROFILE}"
+            -E main
+            "${SOURCE_PATH}"
+            -Fo "${OUTPUT_PATH}"
+
+        DEPENDS "${SOURCE_PATH}"
+
+        COMMENT "Compiling Shader: ${SOURCE_FILE}"
+
+        VERBATIM
+    )
+
+    set(AETHER_SHADER_OUTPUTS
+        ${AETHER_SHADER_OUTPUTS}
+        "${OUTPUT_PATH}"
+        PARENT_SCOPE
+    )
+
+endfunction()
+
+# Vertex Shader
+add_aether_shader(
+    "triangle.vert.hlsl"
+    "vs_6_0"
+    "triangle.vert.spv"
+)
+
+# Fragment Shader
+add_aether_shader(
+    "triangle.frag.hlsl"
+    "ps_6_0"
+    "triangle.frag.spv"
+)
+
+add_custom_target(AetherShaders ALL
+    DEPENDS ${AETHER_SHADER_OUTPUTS}
+)
+
+add_dependencies(Aether AetherShaders)
+
+# ============================================================
 # Compile Definitions
 # ============================================================
 
 target_compile_definitions(Aether PRIVATE
     GLM_FORCE_DEPTH_ZERO_TO_ONE
+
+    AETHER_SHADER_DIR="${SHADER_BINARY_DIR}"
 )
 
 # ============================================================
@@ -173,7 +267,13 @@ set_target_properties(Aether PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
+# ============================================================
+# Configuration Summary
+# ============================================================
+
 message(STATUS "====================================")
 message(STATUS "Aether Engine Configuration Complete")
 message(STATUS "C++ Standard: C++${CMAKE_CXX_STANDARD}")
+message(STATUS "Shader Source: ${SHADER_SOURCE_DIR}")
+message(STATUS "Shader Output: ${SHADER_BINARY_DIR}")
 message(STATUS "====================================")

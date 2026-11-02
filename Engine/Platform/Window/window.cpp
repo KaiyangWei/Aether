@@ -7,14 +7,14 @@ bool Aether::Window::Initialize(uint32_t width, uint32_t height, const std::stri
 		return false;
 	if (!glfwInit())
 	{
-		std::cout << "Failed to init GLFW!" << "\n";
+		std::cerr << "Failed to init GLFW!" << "\n";
 		return false;
 	}
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	m_window = glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
 	if (m_window == nullptr)
 	{
-		std::cout << "Failed to create window!" << "\n";
+		std::cerr << "Failed to create window!" << "\n";
 		glfwTerminate();
 		return false;
 	}
@@ -31,7 +31,7 @@ void Aether::Window::PollEvents()
 {
 	if (m_window == nullptr)
 	{
-		std::cout << "No available window!" << "\n";
+		std::cerr << "No available window!" << "\n";
 		return;
 	}
 
@@ -44,6 +44,21 @@ bool Aether::Window::IsOpen() const
 	return m_window != nullptr &&
 		m_initialized &&
 		!glfwWindowShouldClose(m_window);
+}
+
+GLFWwindow* Aether::Window::GetNativeHandle() const
+{
+	return m_window;
+}
+
+uint32_t Aether::Window::GetWidth() const
+{
+	return m_width;
+}
+
+uint32_t Aether::Window::GetHeight() const
+{
+	return m_height;
 }
 
 void Aether::Window::Shutdown()
@@ -67,6 +82,6 @@ void Aether::Window::Shutdown()
 
 Aether::Window::~Window()
 {
-	std::cout << "Destroying the Window!" << "\n";
+	std::cerr << "Destroying the Window!" << "\n";
 	Shutdown();
 }
