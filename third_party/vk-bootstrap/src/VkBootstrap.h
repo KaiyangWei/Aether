@@ -11,7 +11,7 @@
  * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
  * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
- * Copyright © 2020 Charles Giessen (charles@lunarg.com)
+ * Copyright © 2020-2026 Charles Giessen (charles@lunarg.com)
  */
 
 #pragma once
@@ -355,9 +355,9 @@ class InstanceBuilder {
     Result<Instance> build() const;
 
     // Sets the name of the application. Defaults to "" if none is provided.
-    InstanceBuilder& set_app_name(const char* app_name);
+    InstanceBuilder& set_app_name(std::string app_name);
     // Sets the name of the engine. Defaults to "" if none is provided.
-    InstanceBuilder& set_engine_name(const char* engine_name);
+    InstanceBuilder& set_engine_name(std::string engine_name);
 
     // Sets the version of the application.
     // Should be constructed with VK_MAKE_VERSION or VK_MAKE_API_VERSION.
@@ -384,9 +384,9 @@ class InstanceBuilder {
     InstanceBuilder& set_minimum_instance_version(uint32_t major, uint32_t minor, uint32_t patch = 0);
 
     // Adds a layer to be enabled. Will fail to create an instance if the layer isn't available.
-    InstanceBuilder& enable_layer(const char* layer_name);
+    InstanceBuilder& enable_layer(std::string layer_name);
     // Adds an extension to be enabled. Will fail to create an instance if the extension isn't available.
-    InstanceBuilder& enable_extension(const char* extension_name);
+    InstanceBuilder& enable_extension(std::string extension_name);
 
     // Add extensions to be enabled. Will fail to create an instance if the extension aren't available.
     InstanceBuilder& enable_extensions(size_t count, const char* const* extensions);
@@ -395,10 +395,11 @@ class InstanceBuilder {
     InstanceBuilder& enable_extensions(std::vector<const char*> const& extensions) {
         return enable_extensions(extensions.size(), extensions.data());
     }
+    InstanceBuilder& enable_extensions(std::vector<std::string> const& extensions);
 
 #if VKB_SPAN_OVERLOADS
     // Add extensions to be enabled. Will fail to create an instance if the extension aren't available.
-    InstanceBuilder& enable_extensions(std::span<const char*> extensions) {
+    InstanceBuilder& enable_extensions(std::span<const char* const> extensions) {
         return enable_extensions(extensions.size(), extensions.data());
     }
 #endif
@@ -447,16 +448,16 @@ class InstanceBuilder {
     private:
     struct InstanceInfo {
         // VkApplicationInfo
-        const char* app_name = nullptr;
-        const char* engine_name = nullptr;
+        std::string app_name;
+        std::string engine_name;
         uint32_t application_version = 0;
         uint32_t engine_version = 0;
         uint32_t minimum_instance_version = 0;
         uint32_t required_api_version = VKB_VK_API_VERSION_1_0;
 
         // VkInstanceCreateInfo
-        std::vector<const char*> layers;
-        std::vector<const char*> extensions;
+        std::vector<std::string> layers;
+        std::vector<std::string> extensions;
         VkInstanceCreateFlags flags = static_cast<VkInstanceCreateFlags>(0);
         std::vector<VkLayerSettingEXT> layer_settings;
 
@@ -528,7 +529,7 @@ struct PhysicalDevice {
     std::vector<std::string> get_available_extensions() const;
 
     // Returns true if an extension should be enabled on the device
-    bool is_extension_present(const char* extension) const;
+    bool is_extension_present(std::string extension) const;
 
     // Returns true if all the features are present
     template <typename T> bool are_extension_features_present(T const& features) const {
@@ -537,7 +538,7 @@ struct PhysicalDevice {
 
     // If the given extension is present, make the extension be enabled on the device.
     // Returns true the extension is present.
-    bool enable_extension_if_present(const char* extension);
+    bool enable_extension_if_present(std::string extension);
 
     // If all the given extensions are present, make all the extensions be enabled on the device.
     // Returns true if all the extensions are present.
@@ -545,9 +546,10 @@ struct PhysicalDevice {
     bool enable_extensions_if_present(const std::vector<const char*>& extensions) {
         return enable_extensions_if_present(extensions.size(), extensions.data());
     }
+    bool enable_extensions_if_present(std::vector<std::string> const& extensions);
 
 #if VKB_SPAN_OVERLOADS
-    bool enable_extensions_if_present(std::span<const char*> extensions) {
+    bool enable_extensions_if_present(std::span<const char* const> extensions) {
         return enable_extensions_if_present(extensions.size(), extensions.data());
     }
 #endif
@@ -644,13 +646,15 @@ class PhysicalDeviceSelector {
 
 #if VKB_SPAN_OVERLOADS
     // Require a physical device which supports a set of extensions.
-    PhysicalDeviceSelector& add_required_extensions(std::span<const char*> extensions) {
+    PhysicalDeviceSelector& add_required_extensions(std::span<const char* const> extensions) {
         return add_required_extensions(extensions.size(), extensions.data());
     }
 #endif
 
     // Require a physical device that supports a (major, minor) version of vulkan.
     PhysicalDeviceSelector& set_minimum_version(uint32_t major, uint32_t minor);
+    // Should be constructed with VK_MAKE_VERSION or VK_MAKE_API_VERSION.
+    PhysicalDeviceSelector& set_minimum_version(uint32_t minimum_api_version);
 
     // By default PhysicalDeviceSelector enables the portability subset if available
     // This function disables that behavior
@@ -660,6 +664,17 @@ class PhysicalDeviceSelector {
     // the pNext chain of VkDeviceCreateInfo.
     template <typename T> PhysicalDeviceSelector& add_required_extension_features(T const& features) {
         criteria.extended_features_chain.add_structure(static_cast<VkStructureType>(features.sType), sizeof(T), &features);
+        void* pNext_struct = features.pNext;
+        while (pNext_struct) {
+            VkBaseOutStructure out_structure{};
+            memcpy(&out_structure, pNext_struct, sizeof(VkBaseOutStructure));
+            uint32_t struct_size = vkb::detail::get_structure_size(out_structure.sType);
+            if (struct_size > 0) {
+                criteria.extended_features_chain.add_structure(out_structure.sType, struct_size, pNext_struct);
+            }
+            pNext_struct = out_structure.pNext;
+        }
+
         return *this;
     }
 
@@ -820,12 +835,11 @@ class DeviceBuilder {
     DeviceBuilder& custom_queue_setup(std::span<const CustomQueueDescription> queue_descriptions);
 #endif
 
-    // Add a structure to the pNext chain of VkDeviceCreateInfo.
+    // Add a pNext chain structure to the pNext chain of VkDeviceCreateInfo.
     // The structure must be valid when DeviceBuilder::build() is called.
-    template <typename T> DeviceBuilder& add_pNext(T* structure) {
-        info.pNext_chain.push_back(structure);
-        return *this;
-    }
+    // The structure must be a type that is valid to add to the pNext chain of VkDeviceCreateInfo
+    // Any structures chained through the pNext pointer will also be added
+    DeviceBuilder& add_pNext(void* structure_to_add);
 
     // Provide custom allocation callbacks.
     DeviceBuilder& set_allocation_callbacks(VkAllocationCallbacks* callbacks);
@@ -863,6 +877,12 @@ struct Swapchain {
     // structure.
     Result<std::vector<VkImageView>> get_image_views();
     Result<std::vector<VkImageView>> get_image_views(const void* pNext);
+
+    // Returns both a vector of VkImage handles to the swapchain and a vector of VkImageViews to said VkImages.
+    // VkImageViews must be destroyed. The pNext chain must be a nullptr or a valid structure.
+    Result<std::pair<std::vector<VkImage>, std::vector<VkImageView>>> get_images_and_image_views();
+    Result<std::pair<std::vector<VkImage>, std::vector<VkImageView>>> get_images_and_image_views(const void* pNext);
+
     void destroy_image_views(size_t count, VkImageView const* image_views);
     void destroy_image_views(std::vector<VkImageView> const& image_views);
 #if VKB_SPAN_OVERLOADS
@@ -978,10 +998,9 @@ class SwapchainBuilder {
 
     // Add a structure to the pNext chain of VkSwapchainCreateInfoKHR.
     // The structure must be valid when SwapchainBuilder::build() is called.
-    template <typename T> SwapchainBuilder& add_pNext(T* structure) {
-        info.pNext_chain.push_back(structure);
-        return *this;
-    }
+    // The structure must be a type that is valid to add to the pNext chain of VkSwapchainCreateInfoKHR
+    // Any structures chained through the pNext pointer will also be added
+    SwapchainBuilder& add_pNext(void* structure_to_add);
 
     // Provide custom allocation callbacks.
     SwapchainBuilder& set_allocation_callbacks(VkAllocationCallbacks* callbacks);

@@ -10,7 +10,7 @@
 # IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
 # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
-# Copyright © 2023 Charles Giessen (charles@lunarg.com)
+# Copyright © 2023-2026 Charles Giessen (charles@lunarg.com)
 #
 
 # The purpose of this script is to automatically run the autogen code every week and submit a PR to include the changes
@@ -30,21 +30,21 @@ jobs:
         PR_NUMBER: ${{ github.event.number }}
 
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: generate-token
         with:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
             python-version: '3.10'
 
       - run: pip install vulkan_object
 
       - name: Check out repository code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 2
 

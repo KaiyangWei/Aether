@@ -1,4 +1,16 @@
-float4 main() : SV_Target
+struct PSInput
 {
-    return float4(1.0, 0.0, 0.0, 1.0);
+    [[vk::location(0)]] float3 Color : COLOR0;
+};
+
+struct PSOutput
+{
+    [[vk::location(0)]] float4 Color : SV_Target0;
+};
+
+PSOutput main(PSInput input)
+{
+    PSOutput output;
+    output.Color = float4(input.Color, 1.0f);
+    return output;
 }

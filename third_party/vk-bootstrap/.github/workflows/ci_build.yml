@@ -12,7 +12,7 @@
 # IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
 # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
-# Copyright © 2023 Charles Giessen (charles@lunarg.com)
+# Copyright © 2023-2026 Charles Giessen (charles@lunarg.com)
 #
 
 
@@ -25,6 +25,7 @@ jobs:
         name: Linux
         runs-on: ubuntu-latest
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+        timeout-minutes: 15
         strategy:
             fail-fast: false
             matrix:
@@ -39,7 +40,7 @@ jobs:
 
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
             - uses: lukka/get-cmake@latest
               with:
                 cmakeVersion: 3.22
@@ -66,6 +67,7 @@ jobs:
         name: Linux with Thread Sanitizer
         runs-on: ubuntu-latest
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+        timeout-minutes: 15
         strategy:
             fail-fast: false
             matrix:
@@ -79,7 +81,7 @@ jobs:
                     cxx: g++
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
             - uses: lukka/get-cmake@latest
               with:
                 cmakeVersion: 3.22
@@ -106,19 +108,24 @@ jobs:
         name: Windows
         runs-on: windows-latest
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+        timeout-minutes: 15
         strategy:
             matrix:
                 arch: [ Win32, x64 ]
                 type: [ Debug, Release ]
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
             - uses: TheMrMilchmann/setup-msvc-dev@v4
               with:
                 arch: ${{matrix.arch}}
 
             - name: CMake Configure
               run: cmake -S. -B build -D CMAKE_BUILD_TYPE=${{matrix.type}} -D VK_BOOTSTRAP_WERROR=ON -D VK_BOOTSTRAP_TEST=ON -D ENABLE_ADDRESS_SANITIZER=ON -A ${{matrix.arch}}
+              env:
+                CFLAGS: -fsanitize=address
+                CXXFLAGS: -fsanitize=address
+                LDFLAGS: -fsanitize=address
 
             - name: CMake Build
               run: cmake --build build --config ${{matrix.type}}
@@ -131,6 +138,7 @@ jobs:
         name: macOS
         runs-on: macos-latest
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+        timeout-minutes: 15
         strategy:
             fail-fast: false
             matrix:
@@ -139,7 +147,7 @@ jobs:
                 cxx: ["clang++"]
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
             - uses: lukka/get-cmake@latest
               with:
                 cmakeVersion: 3.22
@@ -166,6 +174,7 @@ jobs:
         name: macOS with Thread Sanitizer
         runs-on: macos-latest
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+        timeout-minutes: 15
         strategy:
             fail-fast: false
             matrix:
@@ -174,7 +183,7 @@ jobs:
                 cxx: ["clang++"]
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
             - uses: lukka/get-cmake@latest
               with:
                 cmakeVersion: 3.22

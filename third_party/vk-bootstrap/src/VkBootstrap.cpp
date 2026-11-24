@@ -11,7 +11,7 @@
  * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
  * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
- * Copyright © 2020 Charles Giessen (charles@lunarg.com)
+ * Copyright © 2020-2026 Charles Giessen (charles@lunarg.com)
  */
 
 #include "VkBootstrap.h"
@@ -136,6 +136,16 @@ std::vector<vkb::detail::FeaturesChain::StructInfo>::const_iterator FeaturesChai
     return std::find_if(structure_infos.begin(), structure_infos.end(), [sType](StructInfo const& struct_info) {
         return struct_info.sType == sType;
     });
+}
+
+void add_all_pnext_structures(std::vector<void*>& pNext_chain, void* structure_to_add) {
+    auto pNext_iter = structure_to_add;
+    while (pNext_iter != nullptr) {
+        pNext_chain.push_back(pNext_iter);
+        VkBaseOutStructure out_structure{};
+        memcpy(&out_structure, pNext_iter, sizeof(VkBaseOutStructure));
+        pNext_iter = out_structure.pNext;
+    }
 }
 
 
@@ -411,10 +421,9 @@ void destroy_debug_utils_messenger(
 }
 
 namespace detail {
-bool check_layer_supported(std::vector<VkLayerProperties> const& available_layers, const char* layer_name) {
-    if (!layer_name) return false;
+bool check_layer_supported(std::vector<VkLayerProperties> const& available_layers, std::string const& layer_name) {
     for (const auto& layer_properties : available_layers) {
-        if (strcmp(layer_name, layer_properties.layerName) == 0) {
+        if (strcmp(layer_name.c_str(), layer_properties.layerName) == 0) {
             return true;
         }
     }
@@ -422,7 +431,7 @@ bool check_layer_supported(std::vector<VkLayerProperties> const& available_layer
 }
 
 std::vector<std::string> check_layers_supported(
-    std::vector<VkLayerProperties> const& available_layers, std::vector<const char*> const& layer_names) {
+    std::vector<VkLayerProperties> const& available_layers, std::vector<std::string> const& layer_names) {
     std::vector<std::string> not_found;
     for (const auto& layer_name : layer_names) {
         bool found = check_layer_supported(available_layers, layer_name);
@@ -431,10 +440,9 @@ std::vector<std::string> check_layers_supported(
     return not_found;
 }
 
-bool check_extension_supported(std::vector<VkExtensionProperties> const& available_extensions, const char* extension_name) {
-    if (!extension_name) return false;
+bool check_extension_supported(std::vector<VkExtensionProperties> const& available_extensions, std::string const& extension_name) {
     for (const auto& extension_properties : available_extensions) {
-        if (strcmp(extension_name, extension_properties.extensionName) == 0) {
+        if (strcmp(extension_name.c_str(), extension_properties.extensionName) == 0) {
             return true;
         }
     }
@@ -442,7 +450,7 @@ bool check_extension_supported(std::vector<VkExtensionProperties> const& availab
 }
 
 std::vector<std::string> check_extensions_supported(
-    std::vector<VkExtensionProperties> const& available_extensions, std::vector<const char*> const& extension_names) {
+    std::vector<VkExtensionProperties> const& available_extensions, std::vector<std::string> const& extension_names) {
     std::vector<std::string> not_found;
     for (const auto& extension_name : extension_names) {
         bool found = check_extension_supported(available_extensions, extension_name);
@@ -455,6 +463,17 @@ template <typename T> void setup_pNext_chain(T& structure, std::vector<void*> co
     structure.pNext = nullptr;
     if (structs.empty()) return;
     for (size_t i = 0; i < structs.size() - 1; i++) {
+        // Make sure we aren't adding the same struct more than once. We do not care about duplicate sTypes here.
+        bool is_duplicate = false;
+        for (size_t j = 0; j != i; j++) {
+            if (structs.at(i) == structs.at(j)) {
+                is_duplicate = true;
+                break;
+            }
+        }
+        if (is_duplicate) {
+            continue;
+        }
         VkBaseOutStructure out_structure{};
         memcpy(&out_structure, structs.at(i), sizeof(VkBaseOutStructure));
 #if !defined(NDEBUG)
@@ -733,14 +752,14 @@ Result<Instance> InstanceBuilder::build() const {
     VkApplicationInfo app_info = {};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app_info.pNext = nullptr;
-    app_info.pApplicationName = info.app_name != nullptr ? info.app_name : "";
+    app_info.pApplicationName = !info.app_name.empty() ? info.app_name.c_str() : "";
     app_info.applicationVersion = info.application_version;
-    app_info.pEngineName = info.engine_name != nullptr ? info.engine_name : "";
+    app_info.pEngineName = !info.engine_name.empty() ? info.engine_name.c_str() : "";
     app_info.engineVersion = info.engine_version;
     app_info.apiVersion = api_version;
 
-    std::vector<const char*> extensions;
-    std::vector<const char*> layers;
+    std::vector<std::string> extensions;
+    std::vector<std::string> layers;
 
     for (auto& ext : info.extensions)
         extensions.push_back(ext);
@@ -849,6 +868,18 @@ Result<Instance> InstanceBuilder::build() const {
         pNext_chain.push_back(&layer_settings_ci);
     }
 
+    // Vulkan's C api expects char*'s for the strings.
+    std::vector<const char*> extension_strings;
+    extension_strings.resize(extensions.size());
+    for (size_t i = 0; i < extension_strings.size(); i++) {
+        extension_strings[i] = extensions[i].c_str();
+    }
+    std::vector<const char*> layer_strings;
+    layer_strings.resize(layers.size());
+    for (size_t i = 0; i < layer_strings.size(); i++) {
+        layer_strings[i] = layers[i].c_str();
+    }
+
     VkInstanceCreateInfo instance_create_info = {};
     instance_create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     detail::setup_pNext_chain(instance_create_info, pNext_chain);
@@ -856,9 +887,9 @@ Result<Instance> InstanceBuilder::build() const {
     instance_create_info.flags = info.flags;
     instance_create_info.pApplicationInfo = &app_info;
     instance_create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
-    instance_create_info.ppEnabledExtensionNames = extensions.data();
+    instance_create_info.ppEnabledExtensionNames = extension_strings.data();
     instance_create_info.enabledLayerCount = static_cast<uint32_t>(layers.size());
-    instance_create_info.ppEnabledLayerNames = layers.data();
+    instance_create_info.ppEnabledLayerNames = layer_strings.data();
 #if defined(VK_KHR_portability_enumeration)
     if (portability_enumeration_support) {
         instance_create_info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
@@ -894,14 +925,11 @@ Result<Instance> InstanceBuilder::build() const {
     instance.fp_vkGetDeviceProcAddr = detail::vulkan_functions().fp_vkGetDeviceProcAddr;
     return instance;
 }
-
-InstanceBuilder& InstanceBuilder::set_app_name(const char* app_name) {
-    if (!app_name) return *this;
+InstanceBuilder& InstanceBuilder::set_app_name(std::string app_name) {
     info.app_name = app_name;
     return *this;
 }
-InstanceBuilder& InstanceBuilder::set_engine_name(const char* engine_name) {
-    if (!engine_name) return *this;
+InstanceBuilder& InstanceBuilder::set_engine_name(std::string engine_name) {
     info.engine_name = engine_name;
     return *this;
 }
@@ -937,13 +965,11 @@ InstanceBuilder& InstanceBuilder::set_minimum_instance_version(uint32_t major, u
     info.minimum_instance_version = VKB_MAKE_VK_VERSION(0, major, minor, patch);
     return *this;
 }
-InstanceBuilder& InstanceBuilder::enable_layer(const char* layer_name) {
-    if (!layer_name) return *this;
+InstanceBuilder& InstanceBuilder::enable_layer(std::string layer_name) {
     info.layers.push_back(layer_name);
     return *this;
 }
-InstanceBuilder& InstanceBuilder::enable_extension(const char* extension_name) {
-    if (!extension_name) return *this;
+InstanceBuilder& InstanceBuilder::enable_extension(std::string extension_name) {
     info.extensions.push_back(extension_name);
     return *this;
 }
@@ -951,6 +977,12 @@ InstanceBuilder& InstanceBuilder::enable_extensions(size_t count, const char* co
     if (!extensions || count == 0) return *this;
     for (size_t i = 0; i < count; i++) {
         info.extensions.push_back(extensions[i]);
+    }
+    return *this;
+}
+InstanceBuilder& InstanceBuilder::enable_extensions(std::vector<std::string> const& extensions) {
+    for (auto const& s : extensions) {
+        info.extensions.push_back(s);
     }
     return *this;
 }
@@ -1272,7 +1304,10 @@ PhysicalDeviceSelector::PhysicalDeviceSelector(Instance const& instance, VkSurfa
 Result<std::vector<PhysicalDevice>> PhysicalDeviceSelector::select_devices() const {
     if (criteria.require_present && !criteria.defer_surface_initialization) {
         if (instance_info.surface == VK_NULL_HANDLE)
-            return Result<std::vector<PhysicalDevice>>{ PhysicalDeviceError::no_surface_provided };
+            return Result<std::vector<PhysicalDevice>>{ PhysicalDeviceError::no_surface_provided,
+                { "PhysicalDeviceSelector was not initialized with a VkSurfaceKHR handle. Please provide one, or if "
+                  "there is no surface to provide, disable surface checks by calling defer_surface_initialization() on "
+                  "the vkb::PhysicalDeviceSelector or calling set_headless() on the vkb::InstanceBuilder" } };
     }
 
     // Get the VkPhysicalDevice handles on the system
@@ -1419,6 +1454,10 @@ PhysicalDeviceSelector& PhysicalDeviceSelector::set_minimum_version(uint32_t maj
     criteria.required_version = VKB_MAKE_VK_VERSION(0, major, minor, 0);
     return *this;
 }
+PhysicalDeviceSelector& PhysicalDeviceSelector::set_minimum_version(uint32_t minimum_api_version) {
+    criteria.required_version = minimum_api_version;
+    return *this;
+}
 PhysicalDeviceSelector& PhysicalDeviceSelector::disable_portability_subset() {
     criteria.enable_portability_subset = false;
     return *this;
@@ -1486,10 +1525,10 @@ bool PhysicalDevice::has_separate_transfer_queue() const {
 std::vector<VkQueueFamilyProperties> PhysicalDevice::get_queue_families() const { return queue_families; }
 std::vector<std::string> PhysicalDevice::get_extensions() const { return extensions_to_enable; }
 std::vector<std::string> PhysicalDevice::get_available_extensions() const { return available_extensions; }
-bool PhysicalDevice::is_extension_present(const char* ext) const {
+bool PhysicalDevice::is_extension_present(std::string ext) const {
     return std::binary_search(std::begin(available_extensions), std::end(available_extensions), ext);
 }
-bool PhysicalDevice::enable_extension_if_present(const char* extension) {
+bool PhysicalDevice::enable_extension_if_present(std::string extension) {
     if (std::binary_search(std::begin(available_extensions), std::end(available_extensions), extension)) {
         extensions_to_enable.insert(
             std::upper_bound(std::begin(extensions_to_enable), std::end(extensions_to_enable), extension), extension);
@@ -1506,6 +1545,19 @@ bool PhysicalDevice::enable_extensions_if_present(size_t count, const char* cons
     }
 
     for (size_t i = 0; i < count; ++i) {
+        extensions_to_enable.insert(
+            std::upper_bound(std::begin(extensions_to_enable), std::end(extensions_to_enable), extensions[i]), extensions[i]);
+    }
+    return true;
+}
+bool PhysicalDevice::enable_extensions_if_present(std::vector<std::string> const& extensions) {
+    for (size_t i = 0; i < extensions.size(); ++i) {
+        if (!std::binary_search(std::begin(available_extensions), std::end(available_extensions), extensions[i])) {
+            return false;
+        }
+    }
+
+    for (size_t i = 0; i < extensions.size(); ++i) {
         extensions_to_enable.insert(
             std::upper_bound(std::begin(extensions_to_enable), std::end(extensions_to_enable), extensions[i]), extensions[i]);
     }
@@ -1713,8 +1765,8 @@ Result<Device> DeviceBuilder::build() const {
         }
     }
 
-    for (auto& pnext : info.pNext_chain) {
-        final_pnext_chain.push_back(pnext);
+    for (auto& pNext : info.pNext_chain) {
+        final_pnext_chain.push_back(pNext);
     }
 
     detail::setup_pNext_chain(device_create_info, final_pnext_chain);
@@ -1766,6 +1818,10 @@ DeviceBuilder& DeviceBuilder::custom_queue_setup(std::span<const CustomQueueDesc
     return *this;
 }
 #endif
+DeviceBuilder& DeviceBuilder::add_pNext(void* structure_to_add) {
+    detail::add_all_pnext_structures(info.pNext_chain, structure_to_add);
+    return *this;
+}
 
 // ---- Swapchain ---- //
 
@@ -2041,6 +2097,7 @@ Result<Swapchain> SwapchainBuilder::build() const {
         info.device, swapchain.internal_table.fp_vkDestroySwapchainKHR, "vkDestroySwapchainKHR");
     auto images = swapchain.get_images();
     if (!images) {
+        swapchain.internal_table.fp_vkDestroySwapchainKHR(info.device, swapchain.swapchain, info.allocation_callbacks);
         return Result<Swapchain>{ SwapchainError::failed_get_swapchain_images };
     }
     swapchain.requested_min_image_count = image_count;
@@ -2062,17 +2119,28 @@ Result<std::vector<VkImage>> Swapchain::get_images() {
 }
 Result<std::vector<VkImageView>> Swapchain::get_image_views() { return get_image_views(nullptr); }
 Result<std::vector<VkImageView>> Swapchain::get_image_views(const void* pNext) {
-    const auto swapchain_images_ret = get_images();
+    auto images_and_image_views_ret = get_images_and_image_views(pNext);
+    if (!images_and_image_views_ret) return { images_and_image_views_ret.error() };
+    return std::move(images_and_image_views_ret.value().second);
+}
+Result<std::pair<std::vector<VkImage>, std::vector<VkImageView>>> Swapchain::get_images_and_image_views() {
+    return get_images_and_image_views(nullptr);
+}
+Result<std::pair<std::vector<VkImage>, std::vector<VkImageView>>> Swapchain::get_images_and_image_views(const void* pNext) {
+    auto swapchain_images_ret = get_images();
     if (!swapchain_images_ret) return swapchain_images_ret.error();
-    const auto& swapchain_images = swapchain_images_ret.value();
+    auto& swapchain_images = swapchain_images_ret.value();
 
     bool already_contains_image_view_usage = false;
-    while (pNext) {
-        if (reinterpret_cast<const VkBaseInStructure*>(pNext)->sType == VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO) {
+    const void* pNext_iter = pNext;
+    while (pNext_iter) {
+        VkBaseOutStructure structure{};
+        memcpy(&structure, pNext, sizeof(VkBaseOutStructure));
+        if (structure.sType == VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO) {
             already_contains_image_view_usage = true;
             break;
         }
-        pNext = reinterpret_cast<const VkBaseInStructure*>(pNext)->pNext;
+        pNext_iter = structure.pNext;
     }
     VkImageViewUsageCreateInfo desired_flags{};
     desired_flags.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO;
@@ -2105,10 +2173,11 @@ Result<std::vector<VkImageView>> Swapchain::get_image_views(const void* pNext) {
         if (res != VK_SUCCESS) {
             // Cleanup already created image views
             destroy_image_views(i, views.data());
-            return Result<std::vector<VkImageView>>{ SwapchainError::failed_create_swapchain_image_views, res };
+            return Result<std::pair<std::vector<VkImage>, std::vector<VkImageView>>>{ SwapchainError::failed_create_swapchain_image_views,
+                res };
         }
     }
-    return views;
+    return std::pair{ std::move(swapchain_images), std::move(views) };
 }
 void Swapchain::destroy_image_views(size_t count, VkImageView const* image_views) {
     for (size_t i = 0; i < count; ++i) {
@@ -2166,6 +2235,10 @@ SwapchainBuilder& SwapchainBuilder::use_default_present_mode_selection() {
 }
 SwapchainBuilder& SwapchainBuilder::set_allocation_callbacks(VkAllocationCallbacks* callbacks) {
     info.allocation_callbacks = callbacks;
+    return *this;
+}
+SwapchainBuilder& SwapchainBuilder::add_pNext(void* structure_to_add) {
+    detail::add_all_pnext_structures(info.pNext_chain, structure_to_add);
     return *this;
 }
 SwapchainBuilder& SwapchainBuilder::set_image_usage_flags(VkImageUsageFlags usage_flags) {

@@ -2,7 +2,7 @@
 #
 # generate_features_chain.py
 #
-# Copyright © 2025 Charles Giessen (charles@lunarg.com)
+# Copyright © 2025-2026 Charles Giessen (charles@lunarg.com)
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 # documentation files (the “Software”), to deal in the Software without restriction, including without
@@ -29,7 +29,7 @@ from vulkan_object import get_vulkan_object
 vk = get_vulkan_object()
 
 header = '''/*
- * Copyright © 2025 Charles Giessen (charles@lunarg.com)
+ * Copyright © 2025-2026 Charles Giessen (charles@lunarg.com)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the “Software”), to deal in the Software without restriction, including without
@@ -58,6 +58,12 @@ namespace_decl = '''
 namespace vkb::detail {
 
 '''
+
+# Structures that used to have a protect (like beta ext being moved to non-beta
+HEADER_VERSION_MISSING_DEFINES = {
+    'VkPhysicalDevicePresentMeteringFeaturesNV': {'promoted_version' : '345', 'protect' : 'VK_ENABLE_BETA_EXTENSIONS'},
+}
+
 feature_struct_ext_map = {}
 feature_struct_ext_stype_map = {}
 
@@ -78,6 +84,10 @@ def get_struct_guards(struct, struct_name):
     reqs = []
     if struct.protect is not None:
         reqs.append( f'defined({struct.protect})')
+    if struct_name in HEADER_VERSION_MISSING_DEFINES:
+        version = HEADER_VERSION_MISSING_DEFINES[struct_name]['promoted_version']
+        protect = HEADER_VERSION_MISSING_DEFINES[struct_name]['protect']
+        reqs.append(f'(VK_HEADER_VERSION >= {version} || defined({protect}))')
     enablement = []
     if struct.version is not None:
         enablement.append(f'defined({struct.version.name})')
@@ -121,6 +131,7 @@ def print_required_platform_defines():
 
 def create_feature_chain_declarations():
     out = ''
+    out += 'uint32_t get_structure_size(VkStructureType sType);\n'
     out += 'void compare_VkPhysicalDeviceFeatures(std::vector<std::string> & error_list, VkPhysicalDeviceFeatures const& supported, VkPhysicalDeviceFeatures const& requested);\n'
     out += 'void merge_VkPhysicalDeviceFeatures(VkPhysicalDeviceFeatures & current, VkPhysicalDeviceFeatures const& merge_in);\n'
 
@@ -138,6 +149,16 @@ def create_feature_chain_declarations():
 
 def create_feature_chain_definitions():
     out = ''
+
+    out += 'uint32_t get_structure_size(VkStructureType sType) {\n'
+    out += '    switch (sType){\n'
+    for feature in [x for x in vk.structs.values() if x.extends is not None and 'VkPhysicalDeviceFeatures2' in x.extends]:
+        out += get_struct_guards_start(feature, feature.name)
+        out += f'        case({feature.sType}): return sizeof({feature.name});\n'
+        out += get_struct_guards_end(feature, feature.name)
+    out += '        default: return 0;'
+    out += '    }\n'
+    out += '}\n'
 
     out += 'void compare_VkPhysicalDeviceFeatures(std::vector<std::string> & error_list, VkPhysicalDeviceFeatures const& supported, VkPhysicalDeviceFeatures const& requested) {\n'
     for member in vk.structs['VkPhysicalDeviceFeatures'].members:
